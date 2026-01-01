@@ -5,48 +5,63 @@ Linear 工具
 
 import os
 import requests
-from crewai_tools import tool
+from crewai.tools import BaseTool
+from pydantic import Field, BaseModel
+from typing import Type
 
-class LinearTools:
-    """Linear操作工具集"""
+
+class CreateIssueInput(BaseModel):
+    title: str = Field(description="任务标题")
+    description: str = Field(description="任务描述(支持Markdown)")
+    labels: str = Field(default="", description="标签，用逗号分隔，如 '前端,高优先级'")
+
+
+class GetIssueInput(BaseModel):
+    issue_id: str = Field(description="任务ID或标识符，如 'Y-123'")
+
+
+class UpdateIssueStatusInput(BaseModel):
+    issue_id: str = Field(description="任务ID")
+    status: str = Field(description="新状态，如 'In Progress', 'Done', 'Canceled'")
+
+
+class ListIssuesInput(BaseModel):
+    status: str = Field(default="Todo", description="筛选状态，如 'Todo', 'In Progress', 'Done'")
+
+
+def get_linear_client():
+    api_key = os.getenv("LINEAR_API_KEY")
+    team_id = os.getenv("LINEAR_TEAM_ID")
+    return api_key, team_id
+
+
+def graphql_request(query: str, variables: dict = None):
+    api_key, _ = get_linear_client()
+    headers = {
+        "Authorization": api_key,
+        "Content-Type": "application/json"
+    } if api_key else {}
     
-    def __init__(self):
-        self.api_key = os.getenv("LINEAR_API_KEY")
-        self.team_id = os.getenv("LINEAR_TEAM_ID")
-        self.api_url = "https://api.linear.app/graphql"
-        
-        self.headers = {
-            "Authorization": self.api_key,
-            "Content-Type": "application/json"
-        } if self.api_key else {}
+    payload = {"query": query}
+    if variables:
+        payload["variables"] = variables
     
-    def _graphql_request(self, query: str, variables: dict = None):
-        """发送GraphQL请求"""
-        payload = {"query": query}
-        if variables:
-            payload["variables"] = variables
-        
-        response = requests.post(
-            self.api_url,
-            json=payload,
-            headers=self.headers
-        )
-        return response.json()
-    
-    @tool("创建Linear任务")
-    def create_issue(self, title: str, description: str, labels: str = "") -> str:
-        """
-        在Linear中创建新任务
-        
-        Args:
-            title: 任务标题
-            description: 任务描述(支持Markdown)
-            labels: 标签，用逗号分隔，如 "前端,高优先级"
-        
-        Returns:
-            创建结果和任务链接
-        """
-        if not self.api_key:
+    response = requests.post(
+        "https://api.linear.app/graphql",
+        json=payload,
+        headers=headers
+    )
+    return response.json()
+
+
+class CreateIssueTool(BaseTool):
+    name: str = "创建Linear任务"
+    description: str = "在Linear中创建新任务"
+    args_schema: Type[BaseModel] = CreateIssueInput
+
+    def _run(self, title: str, description: str, labels: str = "") -> str:
+        api_key, team_id = get_linear_client()
+        if not api_key:
             return "错误: Linear未配置，请设置LINEAR_API_KEY"
         
         query = """
@@ -65,14 +80,14 @@ class LinearTools:
         
         variables = {
             "input": {
-                "teamId": self.team_id,
+                "teamId": team_id,
                 "title": title,
                 "description": description
             }
         }
         
         try:
-            result = self._graphql_request(query, variables)
+            result = graphql_request(query, variables)
             
             if "errors" in result:
                 return f"错误: {result['errors']}"
@@ -82,19 +97,16 @@ class LinearTools:
             
         except Exception as e:
             return f"错误: {str(e)}"
-    
-    @tool("获取Linear任务")
-    def get_issue(self, issue_id: str) -> str:
-        """
-        获取Linear任务详情
-        
-        Args:
-            issue_id: 任务ID或标识符，如 "Y-123"
-        
-        Returns:
-            任务详情
-        """
-        if not self.api_key:
+
+
+class GetIssueTool(BaseTool):
+    name: str = "获取Linear任务"
+    description: str = "获取Linear任务详情"
+    args_schema: Type[BaseModel] = GetIssueInput
+
+    def _run(self, issue_id: str) -> str:
+        api_key, _ = get_linear_client()
+        if not api_key:
             return "错误: Linear未配置"
         
         query = """
@@ -120,7 +132,7 @@ class LinearTools:
         """
         
         try:
-            result = self._graphql_request(query, {"id": issue_id})
+            result = graphql_request(query, {"id": issue_id})
             
             if "errors" in result:
                 return f"错误: {result['errors']}"
@@ -137,23 +149,18 @@ class LinearTools:
             
         except Exception as e:
             return f"错误: {str(e)}"
-    
-    @tool("更新Linear任务状态")
-    def update_issue_status(self, issue_id: str, status: str) -> str:
-        """
-        更新Linear任务状态
-        
-        Args:
-            issue_id: 任务ID
-            status: 新状态，如 "In Progress", "Done", "Canceled"
-        
-        Returns:
-            更新结果
-        """
-        if not self.api_key:
+
+
+class UpdateIssueStatusTool(BaseTool):
+    name: str = "更新Linear任务状态"
+    description: str = "更新Linear任务状态"
+    args_schema: Type[BaseModel] = UpdateIssueStatusInput
+
+    def _run(self, issue_id: str, status: str) -> str:
+        api_key, team_id = get_linear_client()
+        if not api_key:
             return "错误: Linear未配置"
         
-        # 首先获取状态ID
         states_query = """
         query GetStates($teamId: String!) {
             team(id: $teamId) {
@@ -168,7 +175,7 @@ class LinearTools:
         """
         
         try:
-            states_result = self._graphql_request(states_query, {"teamId": self.team_id})
+            states_result = graphql_request(states_query, {"teamId": team_id})
             states = states_result["data"]["team"]["states"]["nodes"]
             
             state_id = None
@@ -181,7 +188,6 @@ class LinearTools:
                 available = [s["name"] for s in states]
                 return f"错误: 未找到状态 '{status}'，可用状态: {', '.join(available)}"
             
-            # 更新状态
             update_query = """
             mutation UpdateIssue($id: String!, $stateId: String!) {
                 issueUpdate(id: $id, input: { stateId: $stateId }) {
@@ -196,7 +202,7 @@ class LinearTools:
             }
             """
             
-            result = self._graphql_request(update_query, {
+            result = graphql_request(update_query, {
                 "id": issue_id,
                 "stateId": state_id
             })
@@ -209,19 +215,16 @@ class LinearTools:
                 
         except Exception as e:
             return f"错误: {str(e)}"
-    
-    @tool("列出Linear任务")
-    def list_issues(self, status: str = "Todo") -> str:
-        """
-        列出Linear团队的任务
-        
-        Args:
-            status: 筛选状态，如 "Todo", "In Progress", "Done"
-        
-        Returns:
-            任务列表
-        """
-        if not self.api_key:
+
+
+class ListIssuesTool(BaseTool):
+    name: str = "列出Linear任务"
+    description: str = "列出Linear团队的任务"
+    args_schema: Type[BaseModel] = ListIssuesInput
+
+    def _run(self, status: str = "Todo") -> str:
+        api_key, team_id = get_linear_client()
+        if not api_key:
             return "错误: Linear未配置"
         
         query = """
@@ -242,10 +245,9 @@ class LinearTools:
         """
         
         try:
-            result = self._graphql_request(query, {"teamId": self.team_id})
+            result = graphql_request(query, {"teamId": team_id})
             issues = result["data"]["team"]["issues"]["nodes"]
             
-            # 筛选状态
             filtered = [i for i in issues if i["state"]["name"].lower() == status.lower()] if status else issues
             
             if not filtered:
@@ -260,3 +262,13 @@ class LinearTools:
             
         except Exception as e:
             return f"错误: {str(e)}"
+
+
+class LinearTools:
+    """Linear操作工具集"""
+    
+    def __init__(self):
+        self.create_issue = CreateIssueTool()
+        self.get_issue = GetIssueTool()
+        self.update_issue_status = UpdateIssueStatusTool()
+        self.list_issues = ListIssuesTool()

@@ -4,23 +4,27 @@
 """
 
 import re
-from crewai_tools import tool
+from crewai.tools import BaseTool
+from pydantic import Field, BaseModel
+from typing import Type
 
-class CodeTools:
-    """代码分析工具集"""
-    
-    @tool("分析代码")
-    def analyze_code(self, code: str, language: str = "typescript") -> str:
-        """
-        分析代码质量和潜在问题
-        
-        Args:
-            code: 要分析的代码
-            language: 编程语言 (typescript/python)
-        
-        Returns:
-            分析报告
-        """
+
+class AnalyzeCodeInput(BaseModel):
+    code: str = Field(description="要分析的代码")
+    language: str = Field(default="typescript", description="编程语言 (typescript/python)")
+
+
+class GenerateTemplateInput(BaseModel):
+    component_type: str = Field(description="模板类型 (react-component/react-hook/fastapi-router/supabase-migration)")
+    name: str = Field(description="名称")
+
+
+class AnalyzeCodeTool(BaseTool):
+    name: str = "分析代码"
+    description: str = "分析代码质量和潜在问题"
+    args_schema: Type[BaseModel] = AnalyzeCodeInput
+
+    def _run(self, code: str, language: str = "typescript") -> str:
         issues = []
         suggestions = []
         
@@ -47,39 +51,30 @@ class CodeTools:
         return report
     
     def _analyze_typescript(self, code: str):
-        """分析TypeScript/React代码"""
         issues = []
         suggestions = []
         
-        # 检查console.log
         if "console.log" in code:
             issues.append("包含console.log调试语句，生产环境应移除")
         
-        # 检查any类型
         if re.search(r':\s*any\b', code):
             issues.append("使用了any类型，建议使用具体类型")
         
-        # 检查未使用的变量
-        # 检查是否有空的catch块
         if re.search(r'catch\s*\([^)]*\)\s*{\s*}', code):
             issues.append("存在空的catch块，应处理错误")
         
-        # 检查硬编码字符串
         if re.search(r'http://|https://', code) and 'process.env' not in code:
             suggestions.append("URL可能是硬编码的，建议使用环境变量")
         
-        # React特定检查
         if "useState" in code:
             if not re.search(r'useState<', code):
                 suggestions.append("useState建议添加泛型类型")
         
-        # 检查组件命名
         if "function" in code or "const" in code:
             if re.search(r'(function|const)\s+[a-z]', code):
                 if "export" in code:
                     suggestions.append("React组件名应使用PascalCase")
         
-        # 检查useEffect依赖
         if "useEffect" in code:
             if re.search(r'useEffect\([^)]+,\s*\[\s*\]\)', code):
                 suggestions.append("useEffect依赖数组为空，确认是否需要添加依赖")
@@ -87,50 +82,38 @@ class CodeTools:
         return issues, suggestions
     
     def _analyze_python(self, code: str):
-        """分析Python代码"""
         issues = []
         suggestions = []
         
-        # 检查print语句
         if re.search(r'\bprint\(', code):
             suggestions.append("包含print语句，生产环境建议使用logging")
         
-        # 检查bare except
         if re.search(r'except\s*:', code):
             issues.append("使用了bare except，应指定具体异常类型")
         
-        # 检查TODO
         if "TODO" in code or "FIXME" in code:
             suggestions.append("代码中有TODO/FIXME注释，记得处理")
         
-        # 检查类型注解
         if "def " in code:
             if not re.search(r'def\s+\w+\([^)]*\)\s*->', code):
                 suggestions.append("函数缺少返回类型注解")
         
-        # 检查魔法数字
         if re.search(r'[=<>]\s*\d{2,}', code):
             suggestions.append("可能存在魔法数字，建议使用常量")
         
-        # FastAPI特定检查
         if "FastAPI" in code or "@app" in code or "@router" in code:
             if "async def" not in code:
                 suggestions.append("FastAPI路由建议使用async def")
         
         return issues, suggestions
-    
-    @tool("生成代码模板")
-    def generate_template(self, component_type: str, name: str) -> str:
-        """
-        生成代码模板
-        
-        Args:
-            component_type: 模板类型 (react-component/react-hook/fastapi-router/supabase-migration)
-            name: 名称
-        
-        Returns:
-            代码模板
-        """
+
+
+class GenerateTemplateTool(BaseTool):
+    name: str = "生成代码模板"
+    description: str = "生成代码模板"
+    args_schema: Type[BaseModel] = GenerateTemplateInput
+
+    def _run(self, component_type: str, name: str) -> str:
         templates = {
             "react-component": self._react_component_template,
             "react-hook": self._react_hook_template,
@@ -286,3 +269,11 @@ CREATE POLICY "{table_name}_update_policy" ON {table_name}
 -- Indexes
 CREATE INDEX IF NOT EXISTS {table_name}_created_at_idx ON {table_name}(created_at DESC);
 '''
+
+
+class CodeTools:
+    """代码分析工具集"""
+    
+    def __init__(self):
+        self.analyze_code = AnalyzeCodeTool()
+        self.generate_template = GenerateTemplateTool()
