@@ -286,8 +286,113 @@ class YPlatformDevCrew:
         
         return [analyze_task, database_task, backend_task, frontend_task, review_task]
     
+    def run_pm_mode(self, requirement: str):
+        """
+        PM模式：只运行PM智能体，分析需求并创建Linear子任务
+        
+        Args:
+            requirement: 需求描述
+            
+        Returns:
+            分析结果字符串
+        """
+        
+        print("🔧 初始化PM智能体...")
+        self._create_agents()
+        
+        # 创建PM分析任务
+        pm_task = Task(
+            description=f"""
+分析以下需求，并拆解为具体的开发任务:
+
+需求: {requirement}
+
+你需要:
+1. 理解需求的核心目标
+2. 判断涉及哪些部分(前端/后端/数据库)
+3. 为每个子任务在Linear中创建一个issue，标题格式为: [类型] 任务名
+   - 类型可以是: 前端、后端、数据库
+   - 例如: [前端] 创建登录页面组件
+4. 每个子任务需要包含:
+   - 清晰的标题（带类型标签）
+   - 详细的描述
+   - 验收标准
+5. 确定任务依赖关系和优先级
+
+重要：使用create_issue工具为每个子任务创建Linear issue。
+标题必须包含类型标签，例如: [前端] xxx 或 [后端] xxx
+""",
+            expected_output="需求分析摘要和已创建的子任务列表",
+            agent=self.pm_agent
+        )
+        
+        print("👥 运行PM智能体...")
+        crew = Crew(
+            agents=[self.pm_agent],
+            tasks=[pm_task],
+            process=Process.sequential,
+            verbose=True
+        )
+        
+        print("🏃 PM开始分析...\n")
+        result = crew.kickoff()
+        
+        return str(result)
+    
+    def run_single_agent(self, agent_type: str, task_description: str):
+        """
+        单智能体模式：运行指定的智能体执行任务
+        
+        Args:
+            agent_type: 智能体类型 ("frontend" | "backend" | "database" | "review")
+            task_description: 任务描述
+            
+        Returns:
+            执行结果字符串
+        """
+        
+        print(f"🔧 初始化{agent_type}智能体...")
+        self._create_agents()
+        
+        # 选择智能体
+        agent_map = {
+            "frontend": self.frontend_agent,
+            "backend": self.backend_agent,
+            "database": self.database_agent,
+            "review": self.reviewer_agent,
+        }
+        
+        agent = agent_map.get(agent_type.lower())
+        if not agent:
+            raise ValueError(f"未知的智能体类型: {agent_type}")
+        
+        # 创建执行任务
+        execution_task = Task(
+            description=task_description,
+            expected_output="完成任务的详细报告，包括创建的代码文件和PR链接",
+            agent=agent
+        )
+        
+        print(f"👥 运行{agent_type}智能体...")
+        crew = Crew(
+            agents=[agent],
+            tasks=[execution_task],
+            process=Process.sequential,
+            verbose=True
+        )
+        
+        print(f"🏃 {agent_type}开始执行...\n")
+        result = crew.kickoff()
+        
+        return str(result)
+    
     def run(self, requirement: str):
-        """运行AI开发团队"""
+        """
+        运行AI开发团队（完整模式，保留兼容性）
+        
+        注意：这个方法会运行整个团队，token消耗较大。
+        建议使用 run_pm_mode + run_single_agent 的组合方式。
+        """
         
         print("🔧 初始化智能体团队...")
         self._create_agents()

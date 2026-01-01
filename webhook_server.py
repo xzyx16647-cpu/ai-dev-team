@@ -14,7 +14,9 @@ import hashlib
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify
 from threading import Thread
-from crew import YPlatformDevCrew
+from workflows.task_router import TaskRouter
+from workflows.pm_workflow import PMWorkflow
+from workflows.execution_workflow import ExecutionWorkflow
 
 load_dotenv()
 
@@ -37,39 +39,35 @@ def verify_signature(payload, signature):
     return hmac.compare_digest(f"sha256={expected}", signature)
 
 def process_task(issue_data):
-    """在后台处理任务"""
+    """在后台处理任务 - 使用新的工作流系统"""
     print(f"\n🚀 开始处理任务: {issue_data.get('title', 'Unknown')}")
     print(f"📋 任务数据: {json.dumps(issue_data, indent=2, ensure_ascii=False)[:500]}...")
     
     try:
-        crew = YPlatformDevCrew()
+        # 路由任务
+        router = TaskRouter()
+        workflow_type = router.route(issue_data)
         
-        # 安全地获取标签
-        labels_raw = issue_data.get('labels', [])
-        if isinstance(labels_raw, list):
-            labels_str = ', '.join([l.get('name', '') if isinstance(l, dict) else str(l) for l in labels_raw])
+        print(f"🔀 路由结果: {workflow_type}")
+        
+        if workflow_type == "pm_mode":
+            # PM模式：分析需求，创建子任务
+            print("📋 执行PM工作流...")
+            pm_workflow = PMWorkflow()
+            result = pm_workflow.run(issue_data)
+            print(f"✅ PM工作流完成: {result.get('message', '')}")
+            
+        elif workflow_type in ["frontend", "backend", "database", "review"]:
+            # 执行模式：运行单个智能体
+            print(f"🤖 执行{workflow_type}工作流...")
+            execution_workflow = ExecutionWorkflow()
+            result = execution_workflow.run(workflow_type, issue_data)
+            print(f"✅ {workflow_type}工作流完成: {result.get('message', '')}")
+            
         else:
-            labels_str = str(labels_raw)
-        
-        # 构建需求描述 - 简化描述以减少token使用
-        title = issue_data.get('title', '')
-        description = issue_data.get('description', '无描述')
-        
-        # 如果描述太长，截断
-        if len(description) > 500:
-            description = description[:500] + "..."
-        
-        requirement = f"""
-任务: {title}
-
-描述: {description}
-
-标签: {labels_str}
-"""
-        
-        result = crew.run(requirement)
-        print(f"✅ 任务完成: {title}")
-        print(result)
+            print(f"⏭️ 跳过任务: 未匹配到工作流类型")
+            print(f"   标题: {issue_data.get('title', '')}")
+            print(f"   标签: {issue_data.get('labels', [])}")
         
     except Exception as e:
         import traceback
