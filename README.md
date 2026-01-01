@@ -122,19 +122,82 @@ def my_custom_tool(param: str) -> str:
     return "结果"
 ```
 
-## 🌐 24小时自动运行
+## 🌐 24小时自动运行 (Railway部署)
 
-想让它自动监听Linear任务？部署到云上:
+### 🚂 一键部署到Railway
 
-### 方式1: Railway (推荐新手)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template)
 
-1. 注册 [Railway](https://railway.app/)
-2. 连接你的GitHub
-3. 创建新项目，选择这个仓库
-4. 添加环境变量
-5. 部署完成!
+**详细步骤:**
 
-### 方式2: 自己的服务器
+#### 第一步：连接GitHub
+1. 访问 [Railway](https://railway.app/) 并注册/登录
+2. 点击 **New Project** → **Deploy from GitHub repo**
+3. 授权Railway访问你的GitHub
+4. 选择 `ai-dev-team` 仓库
+
+#### 第二步：配置环境变量
+在Railway项目设置中添加以下环境变量:
+
+| 变量名 | 必需 | 说明 |
+|--------|------|------|
+| `ANTHROPIC_API_KEY` | ✅ | Claude API密钥 |
+| `GITHUB_TOKEN` | ✅ | GitHub Personal Access Token |
+| `GITHUB_REPO` | ✅ | 目标仓库 (如: `user/repo`) |
+| `LINEAR_API_KEY` | ❌ | Linear API密钥 (如需Linear集成) |
+| `LINEAR_TEAM_ID` | ❌ | Linear团队ID |
+| `WEBHOOK_SECRET` | ❌ | Webhook验证密钥 |
+
+#### 第三步：获取Webhook URL
+1. 部署成功后，Railway会自动分配一个域名
+2. 你的Webhook URL格式: `https://your-app.railway.app/webhook/linear`
+
+#### 第四步：配置Linear Webhook (可选)
+1. 打开 Linear Settings → API → Webhooks
+2. 添加新Webhook，URL填入上面获取的地址
+3. 选择触发事件: Issue created, Issue updated
+4. 保存
+
+#### 第五步：测试
+```bash
+# 发送测试请求
+curl -X POST https://your-app.railway.app/trigger \
+  -H "Content-Type: application/json" \
+  -d '{"requirement": "添加一个测试功能"}'
+```
+
+### 🔧 本地开发
+
+```bash
+# 安装依赖
+pip install -r requirements.txt
+
+# 复制环境变量
+cp .env.example .env
+# 编辑.env填入你的API密钥
+
+# 启动服务器
+python webhook_server.py
+```
+
+### 📡 API端点
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/` | GET | 健康检查 |
+| `/webhook/linear` | POST | Linear Webhook接收 |
+| `/webhook/github` | POST | GitHub Webhook接收 |
+| `/trigger` | POST | 手动触发任务 |
+
+### 方式2: 自己的服务器 (Docker)
+
+```bash
+# 使用Docker部署
+docker build -t ai-dev-team .
+docker run -d --env-file .env -p 5000:5000 ai-dev-team
+```
+
+### 方式3: 自己的服务器 (Supervisor)
 
 ```bash
 # 安装supervisor
