@@ -51,23 +51,38 @@ def process_task(issue_data):
         else:
             labels_str = str(labels_raw)
         
-        # 构建需求描述
+        # 构建需求描述 - 简化描述以减少token使用
+        title = issue_data.get('title', '')
+        description = issue_data.get('description', '无描述')
+        
+        # 如果描述太长，截断
+        if len(description) > 500:
+            description = description[:500] + "..."
+        
         requirement = f"""
-        任务: {issue_data.get('title', '')}
-        
-        描述:
-        {issue_data.get('description', '无描述')}
-        
-        标签: {labels_str}
-        """
+任务: {title}
+
+描述: {description}
+
+标签: {labels_str}
+"""
         
         result = crew.run(requirement)
-        print(f"✅ 任务完成: {issue_data.get('title')}")
+        print(f"✅ 任务完成: {title}")
         print(result)
         
     except Exception as e:
         import traceback
-        print(f"❌ 任务失败: {str(e)}")
+        error_msg = str(e)
+        
+        # 检查是否是rate limit错误
+        if "rate_limit" in error_msg.lower() or "429" in error_msg:
+            print(f"⚠️ API限流错误: Anthropic API调用频率超限")
+            print(f"💡 建议: 等待1-2分钟后重试，或减少任务复杂度")
+            print(f"📊 当前限制: 每分钟30,000 input tokens")
+        else:
+            print(f"❌ 任务失败: {error_msg}")
+        
         print(f"📚 错误详情:\n{traceback.format_exc()}")
 
 @app.route("/", methods=["GET"])

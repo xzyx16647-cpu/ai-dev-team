@@ -15,10 +15,12 @@ class YPlatformDevCrew:
     
     def __init__(self):
         # 初始化Claude模型
+        # 减少max_tokens以避免rate limit
         self.llm = ChatAnthropic(
             model="claude-sonnet-4-20250514",
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-            max_tokens=4096
+            max_tokens=2048,  # 减少token使用
+            temperature=0.7
         )
         
         # 初始化工具

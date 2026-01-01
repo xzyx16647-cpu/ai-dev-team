@@ -59,16 +59,25 @@ class ListFilesTool(BaseTool):
         
         try:
             contents = repo.get_contents(path)
+            
+            # get_contents可能返回单个文件或目录列表
+            if not isinstance(contents, list):
+                contents = [contents]
+            
             result = f"📁 {path or '根目录'} 下的内容:\n\n"
             
             dirs = []
             files = []
             
             for content in contents:
-                if content.type == "dir":
-                    dirs.append(f"📂 {content.name}/")
+                if hasattr(content, 'type'):
+                    if content.type == "dir":
+                        dirs.append(f"📂 {content.name}/")
+                    else:
+                        files.append(f"📄 {content.name}")
                 else:
-                    files.append(f"📄 {content.name}")
+                    # 如果content是字符串或其他类型，跳过
+                    continue
             
             result += "\n".join(sorted(dirs) + sorted(files))
             return result
@@ -89,6 +98,15 @@ class ReadFileTool(BaseTool):
         
         try:
             content = repo.get_contents(file_path)
+            
+            # 如果返回的是列表（目录），报错
+            if isinstance(content, list):
+                return f"错误: {file_path} 是一个目录，不是文件。请使用'列出仓库文件'工具查看目录内容。"
+            
+            # 确保content有content属性
+            if not hasattr(content, 'content'):
+                return f"错误: 无法获取 {file_path} 的内容"
+            
             decoded = base64.b64decode(content.content).decode('utf-8')
             return f"📄 {file_path}:\n\n```\n{decoded}\n```"
             
