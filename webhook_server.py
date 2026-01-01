@@ -95,6 +95,14 @@ def home():
 def linear_webhook():
     """接收Linear Webhook"""
     
+    # 检查是否禁用了webhook
+    if os.getenv("DISABLE_WEBHOOK", "").lower() == "true":
+        print("⏸️ Webhook处理已禁用 (DISABLE_WEBHOOK=true)")
+        return jsonify({
+            "status": "disabled",
+            "message": "Webhook processing is currently disabled"
+        }), 200
+    
     # 验证签名
     signature = request.headers.get("Linear-Signature", "")
     if not verify_signature(request.data, signature):
@@ -166,6 +174,14 @@ def linear_webhook():
 def github_webhook():
     """接收GitHub Webhook (用于PR comment触发)"""
     
+    # 检查是否禁用了webhook
+    if os.getenv("DISABLE_WEBHOOK", "").lower() == "true":
+        print("⏸️ Webhook处理已禁用 (DISABLE_WEBHOOK=true)")
+        return jsonify({
+            "status": "disabled",
+            "message": "Webhook processing is currently disabled"
+        }), 200
+    
     try:
         event = request.headers.get("X-GitHub-Event", "")
         data = request.json
@@ -199,6 +215,14 @@ def github_webhook():
 @app.route("/trigger", methods=["POST"])
 def manual_trigger():
     """手动触发任务 (用于测试)"""
+    
+    # 检查是否禁用了webhook
+    if os.getenv("DISABLE_WEBHOOK", "").lower() == "true":
+        print("⏸️ Webhook处理已禁用 (DISABLE_WEBHOOK=true)")
+        return jsonify({
+            "status": "disabled",
+            "message": "Webhook processing is currently disabled"
+        }), 200
     
     try:
         data = request.json
