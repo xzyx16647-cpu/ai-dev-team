@@ -25,8 +25,15 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
 def verify_signature(payload, signature):
     """验证Linear Webhook签名"""
-    if not WEBHOOK_SECRET:
+    # 如果没有配置WEBHOOK_SECRET，跳过验证
+    if not WEBHOOK_SECRET or not WEBHOOK_SECRET.strip():
+        print("⏭️ Skipping signature verification (WEBHOOK_SECRET not configured)")
         return True
+    
+    # 如果配置了但没收到签名
+    if not signature:
+        print("⚠️ No signature received but WEBHOOK_SECRET is configured")
+        return False
     
     expected = hmac.new(
         WEBHOOK_SECRET.encode(),
@@ -72,10 +79,18 @@ def home():
 def linear_webhook():
     """接收Linear Webhook"""
     
-    # 验证签名
+    # 验证签名 (只有在配置了WEBHOOK_SECRET时才验证)
     signature = request.headers.get("Linear-Signature", "")
+    
+    # 调试日志
+    print(f"🔐 WEBHOOK_SECRET configured: {bool(WEBHOOK_SECRET and WEBHOOK_SECRET.strip())}")
+    print(f"🔐 Signature received: {bool(signature)}")
+    
     if not verify_signature(request.data, signature):
+        print("❌ Signature verification failed!")
         return jsonify({"error": "Invalid signature"}), 401
+    
+    print("✅ Signature verified (or skipped)")
     
     try:
         data = request.json
