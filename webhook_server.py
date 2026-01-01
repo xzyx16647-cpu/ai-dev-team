@@ -35,13 +35,27 @@ def verify_signature(payload, signature):
         print("⚠️ No signature received but WEBHOOK_SECRET is configured")
         return False
     
+    # 计算期望的签名
     expected = hmac.new(
-        WEBHOOK_SECRET.encode(),
+        WEBHOOK_SECRET.encode('utf-8'),
         payload,
         hashlib.sha256
     ).hexdigest()
     
-    return hmac.compare_digest(f"sha256={expected}", signature)
+    # Linear签名可能是纯hex或者带前缀的格式
+    # 尝试多种格式匹配
+    signature_clean = signature.replace("sha256=", "").strip()
+    
+    print(f"🔐 Expected signature: {expected[:20]}...")
+    print(f"🔐 Received signature: {signature_clean[:20]}...")
+    
+    # 比较签名
+    if hmac.compare_digest(expected, signature_clean):
+        return True
+    if hmac.compare_digest(f"sha256={expected}", signature):
+        return True
+    
+    return False
 
 def process_task(issue_data):
     """在后台处理任务"""
