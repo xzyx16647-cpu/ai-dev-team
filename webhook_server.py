@@ -25,62 +25,31 @@ WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
 
 def verify_signature(payload, signature):
     """验证Linear Webhook签名"""
-    # 如果没有配置WEBHOOK_SECRET，跳过验证
-    if not WEBHOOK_SECRET or not WEBHOOK_SECRET.strip():
-        print("⏭️ Skipping signature verification (WEBHOOK_SECRET not configured)")
+    if not WEBHOOK_SECRET:
         return True
     
-    # 如果配置了但没收到签名，也跳过验证（Linear可能不发签名）
-    if not signature:
-        print("⚠️ No signature received, skipping verification")
-        return True
+    expected = hmac.new(
+        WEBHOOK_SECRET.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
     
-    # 计算期望的签名 - 尝试多种方式
-    secret = WEBHOOK_SECRET.encode('utf-8')
-    
-    # 方式1: 直接hex
-    expected_hex = hmac.new(secret, payload, hashlib.sha256).hexdigest()
-    
-    # 方式2: base64
-    import base64
-    expected_b64 = base64.b64encode(
-        hmac.new(secret, payload, hashlib.sha256).digest()
-    ).decode('utf-8')
-    
-    # 清理接收到的签名
-    sig_clean = signature.replace("sha256=", "").strip()
-    
-    print(f"🔐 Signature received: {signature[:30]}...")
-    print(f"🔐 Expected (hex): {expected_hex[:30]}...")
-    print(f"🔐 Expected (b64): {expected_b64[:30]}...")
-    
-    # 尝试所有可能的匹配方式
-    if hmac.compare_digest(expected_hex, sig_clean):
-        print("✅ Matched (hex)")
-        return True
-    if hmac.compare_digest(expected_b64, sig_clean):
-        print("✅ Matched (base64)")
-        return True
-    if hmac.compare_digest(f"sha256={expected_hex}", signature):
-        print("✅ Matched (sha256= prefix)")
-        return True
-    
-    # 如果都不匹配，为了不阻塞开发，暂时放行但打印警告
-    print("⚠️ Signature mismatch - allowing for debugging purposes")
-    print("⚠️ Set WEBHOOK_STRICT=true to enforce signature validation")
-    
-    # 严格模式检查
-    if os.getenv("WEBHOOK_STRICT", "").lower() == "true":
-        return False
-    
-    return True  # 暂时放行
+    return hmac.compare_digest(f"sha256={expected}", signature)
 
 def process_task(issue_data):
     """在后台处理任务"""
     print(f"\n🚀 开始处理任务: {issue_data.get('title', 'Unknown')}")
+    print(f"📋 任务数据: {json.dumps(issue_data, indent=2, ensure_ascii=False)[:500]}...")
     
     try:
         crew = YPlatformDevCrew()
+        
+        # 安全地获取标签
+        labels_raw = issue_data.get('labels', [])
+        if isinstance(labels_raw, list):
+            labels_str = ', '.join([l.get('name', '') if isinstance(l, dict) else str(l) for l in labels_raw])
+        else:
+            labels_str = str(labels_raw)
         
         # 构建需求描述
         requirement = f"""
@@ -89,7 +58,7 @@ def process_task(issue_data):
         描述:
         {issue_data.get('description', '无描述')}
         
-        标签: {', '.join(issue_data.get('labels', []))}
+        标签: {labels_str}
         """
         
         result = crew.run(requirement)
@@ -97,7 +66,9 @@ def process_task(issue_data):
         print(result)
         
     except Exception as e:
+        import traceback
         print(f"❌ 任务失败: {str(e)}")
+        print(f"📚 错误详情:\n{traceback.format_exc()}")
 
 @app.route("/", methods=["GET"])
 def home():
@@ -111,21 +82,16 @@ def home():
 def linear_webhook():
     """接收Linear Webhook"""
     
-    # 验证签名 (只有在配置了WEBHOOK_SECRET时才验证)
+    # 验证签名
     signature = request.headers.get("Linear-Signature", "")
-    
-    # 调试日志
-    print(f"🔐 WEBHOOK_SECRET configured: {bool(WEBHOOK_SECRET and WEBHOOK_SECRET.strip())}")
-    print(f"🔐 Signature received: {bool(signature)}")
-    
     if not verify_signature(request.data, signature):
-        print("❌ Signature verification failed!")
         return jsonify({"error": "Invalid signature"}), 401
-    
-    print("✅ Signature verified (or skipped)")
     
     try:
         data = request.json
+        
+        # 调试：打印接收到的数据结构
+        print(f"📦 收到Webhook数据: {json.dumps(data, indent=2, ensure_ascii=False)[:500]}...")
         
         # 只处理Issue创建和更新事件
         action = data.get("action")
@@ -137,13 +103,30 @@ def linear_webhook():
             issue = data.get("data", {})
             
             # 检查是否有特定标签触发AI处理
-            labels = [l.get("name", "") for l in issue.get("labels", {}).get("nodes", [])]
+            # Linear webhook的labels可能是字典或列表
+            labels_raw = issue.get("labels", {})
+            labels = []
+            
+            if isinstance(labels_raw, dict):
+                # 如果是字典，尝试获取nodes
+                labels = [l.get("name", "") if isinstance(l, dict) else str(l) 
+                          for l in labels_raw.get("nodes", [])]
+            elif isinstance(labels_raw, list):
+                # 如果直接是列表
+                labels = [l.get("name", "") if isinstance(l, dict) else str(l) 
+                          for l in labels_raw]
+            
+            print(f"🏷️ 标签: {labels}")
             
             # 如果有 "ai-task" 标签，或者任务标题包含 "[AI]"
+            title = issue.get("title", "")
             should_process = (
                 "ai-task" in labels or
-                issue.get("title", "").startswith("[AI]")
+                title.startswith("[AI]")
             )
+            
+            print(f"📋 任务标题: {title}")
+            print(f"✅ 是否处理: {should_process}")
             
             if should_process:
                 # 在后台线程处理，避免超时
